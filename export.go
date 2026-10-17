@@ -31,13 +31,14 @@ func exportRows(rows []ProcInfo, format, fname string) (string, error) {
 	case "csv":
 		cw := csv.NewWriter(w)
 		defer cw.Flush()
-		if err := cw.Write([]string{"pid", "ppid", "name", "cpu_percent", "ram_bytes", "ram", "ports", "path"}); err != nil {
+		if err := cw.Write([]string{"pid", "ppid", "children", "name", "cpu_percent", "ram_bytes", "ram", "ports", "path"}); err != nil {
 			return "", err
 		}
 		for _, p := range rows {
 			rec := []string{
 				fmt.Sprint(p.PID),
 				fmt.Sprint(p.PPID),
+				fmt.Sprint(p.Children),
 				p.Name,
 				fmt.Sprintf("%.2f", p.CPU),
 				fmt.Sprint(p.RAM),
@@ -54,21 +55,21 @@ func exportRows(rows []ProcInfo, format, fname string) (string, error) {
 		}
 
 	case "md":
-		fmt.Fprintln(w, "| PID | PPID | Name | CPU % | RAM | Ports | Path |")
-		fmt.Fprintln(w, "|---:|---:|---|---:|---:|---|---|")
+		fmt.Fprintln(w, "| PID | PPID | Children | Name | CPU % | RAM | Ports | Path |")
+		fmt.Fprintln(w, "|---:|---:|---:|---|---:|---:|---|---|")
 		for _, p := range rows {
-			fmt.Fprintf(w, "| %d | %d | %s | %.1f | %s | %s | %s |\n",
-				p.PID, p.PPID, mdEscape(p.Name), p.CPU,
+			fmt.Fprintf(w, "| %d | %d | %d | %s | %.1f | %s | %s | %s |\n",
+				p.PID, p.PPID, p.Children, mdEscape(p.Name), p.CPU,
 				fmtBytes(p.RAM), mdEscape(portsText(p.Ports)), mdEscape(p.Path))
 		}
 
 	default: // txt
-		fmt.Fprintf(w, "%-8s %-8s %-30s %8s %12s %-20s %s\n",
-			"PID", "PPID", "NAME", "CPU %", "RAM", "PORTS", "PATH")
-		fmt.Fprintln(w, strings.Repeat("-", 120))
+		fmt.Fprintf(w, "%-8s %-8s %-8s %-30s %8s %12s %-20s %s\n",
+			"PID", "PPID", "CHILD", "NAME", "CPU %", "RAM", "PORTS", "PATH")
+		fmt.Fprintln(w, strings.Repeat("-", 128))
 		for _, p := range rows {
-			fmt.Fprintf(w, "%-8d %-8d %-30s %8.1f %12s %-20s %s\n",
-				p.PID, p.PPID, truncEnd(p.Name, 30), p.CPU,
+			fmt.Fprintf(w, "%-8d %-8d %-8d %-30s %8.1f %12s %-20s %s\n",
+				p.PID, p.PPID, p.Children, truncEnd(p.Name, 30), p.CPU,
 				fmtBytes(p.RAM), truncEnd(portsText(p.Ports), 20), p.Path)
 		}
 	}

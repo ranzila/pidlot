@@ -8,9 +8,9 @@ import (
 	"github.com/rivo/tview"
 )
 
-const helpLine = "kill <pid> | child <pid> | filter <text> | port <n> | export txt|csv|md [file] | reset | refresh | help | quit  --  arrows/PgUp/PgDn scroll, Ctrl+L refresh, Ctrl+C quit"
+const helpLine = "kill <pid> | child <pid> | filter <text> | port <n> | sort [col [asc|desc]] | export txt|csv|md [file] | reset | refresh | help | quit  --  ↑↓/PgUp/PgDn scroll, Ctrl+P command menu, Ctrl+L refresh, Ctrl+C quit"
 
-var tableHeaders = []string{"PID", "PPID", "NAME", "CPU %", "RAM", "PORTS", "PATH"}
+var tableHeaders = []string{"PID", "PPID", "CHILDREN", "NAME", "CPU %", "RAM", "PORTS", "PATH"}
 
 // redraw re-renders the table and status bar from the current state.
 func (ui *UI) redraw() {
@@ -33,7 +33,7 @@ func (ui *UI) renderLocked() {
 			SetAttributes(tcell.AttrBold).
 			SetSelectable(false).
 			SetExpansion(1)
-		if c >= 3 && c <= 4 { // CPU % / RAM columns right aligned
+		if c >= 2 && c <= 5 { // CHILDREN / CPU % / RAM columns right aligned
 			cell.SetAlign(tview.AlignRight)
 		}
 		t.SetCell(0, c, cell)
@@ -45,6 +45,8 @@ func (ui *UI) renderLocked() {
 			SetTextColor(tcell.ColorYellow).SetSelectable(false)
 		ppid := tview.NewTableCell(fmt.Sprint(p.PPID)).
 			SetTextColor(tcell.ColorDarkGray).SetSelectable(false)
+		children := tview.NewTableCell(fmt.Sprint(p.Children)).
+			SetTextColor(childrenColor(p.Children)).SetAlign(tview.AlignRight).SetSelectable(false)
 		name := tview.NewTableCell(truncEnd(p.Name, 40)).
 			SetTextColor(tcell.ColorWhite).SetSelectable(false)
 		cpu := tview.NewTableCell(fmt.Sprintf("%.1f", p.CPU)).
@@ -57,11 +59,12 @@ func (ui *UI) renderLocked() {
 			SetTextColor(tcell.ColorDarkGray).SetMaxWidth(80).SetSelectable(false)
 		t.SetCell(r, 0, pid)
 		t.SetCell(r, 1, ppid)
-		t.SetCell(r, 2, name)
-		t.SetCell(r, 3, cpu)
-		t.SetCell(r, 4, ram)
-		t.SetCell(r, 5, ports)
-		t.SetCell(r, 6, path)
+		t.SetCell(r, 2, children)
+		t.SetCell(r, 3, name)
+		t.SetCell(r, 4, cpu)
+		t.SetCell(r, 5, ram)
+		t.SetCell(r, 6, ports)
+		t.SetCell(r, 7, path)
 	}
 
 	ui.status.SetText(s.statusLocked(len(rows)))
@@ -83,6 +86,7 @@ func (s *State) statusLocked(shown int) string {
 	if s.filterPort > 0 {
 		view = append(view, fmt.Sprintf("port %d", s.filterPort))
 	}
+	view = append(view, fmt.Sprintf("sort: %s %s", s.sortKey, s.sortDir))
 	if len(view) > 0 {
 		fmt.Fprintf(&b, "  [aqua::b]view:[-:-:-] %s", strings.Join(view, ", "))
 	}
@@ -120,6 +124,13 @@ func ramColor(bytes uint64) tcell.Color {
 		return tcell.ColorYellow
 	}
 	return tcell.ColorWhite
+}
+
+func childrenColor(n int) tcell.Color {
+	if n == 0 {
+		return tcell.ColorDarkGray
+	}
+	return tcell.ColorTeal
 }
 
 func fmtBytes(b uint64) string {

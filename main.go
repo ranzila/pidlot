@@ -24,13 +24,21 @@ type UI struct {
 	col       *collector
 	history   *cmdHistory
 	refreshCh chan struct{}
+	pages     *tview.Pages
+	menuOpen  bool // true while the Ctrl+P modal is on screen
+}
+
+// menuItem is one selectable entry of the Ctrl+P modal.
+type menuItem struct {
+	label string
+	run   func()
 }
 
 func main() {
 	// Non-TUI mode: `pidlot -once` prints the current process table to stdout.
 	if len(os.Args) > 1 && os.Args[1] == "-once" {
 		snap := newCollector().snapshot()
-		sortProcs(snap)
+		sortProcs(snap, "cpu", "desc")
 		fmt.Println("pidlot snapshot:")
 		if _, err := exportRows(snap, "txt", "-"); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -72,32 +80,7 @@ func main() {
 			return
 		}
 		ui.history.add(cmd)
-		msg, isErr, quit := ui.execute(cmd)
-		if quit {
-			ui.app.Stop()
-			return
-		}
-		ui.state.setMessage(msg, isErr)
-		ui.redraw()
-	})
-
-	// Ctrl+P / Ctrl+N walk the command history like a shell.
-	ui.input.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
-		switch ev.Key() {
-		case tcell.KeyCtrlP:
-			if c, ok := ui.history.prev(); ok {
-				ui.input.SetText(c)
-			}
-			return nil
-		case tcell.KeyCtrlN:
-			if c, ok := ui.history.next(); ok {
-				ui.input.SetText(c)
-			} else {
-				ui.input.SetText("")
-			}
-			return nil
-		}
-		return ev
+		ui.runCommandText(cmd)
 	})
 
 	root := tview.NewFlex().
@@ -106,8 +89,12 @@ func main() {
 		AddItem(ui.status, 2, 1, false).
 		AddItem(ui.input, 1, 1, true)
 
+	ui.pages = tview.NewPages()
+	ui.pages.AddPage("main", root, true, true)
+	ui.pages.AddPage("menu", center(nil, 0, 0), true, false) // replaced on open
+
 	ui.app = tview.NewApplication().
-		SetRoot(root, true).
+		SetRoot(ui.pages, true).
 		SetInputCapture(ui.globalKeys)
 
 	// First snapshot synchronously so the initial frame has data.
@@ -123,8 +110,18 @@ func main() {
 }
 
 // globalKeys handles keys that must work regardless of focus:
-// scrolling the table and app-level shortcuts.
+// scrolling the table, the Ctrl+P modal and app-level shortcuts.
 func (ui *UI) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
+	// While the modal is open, only Ctrl+C / Ctrl+P close it; everything
+	// else goes to the list (navigation, Enter, Esc).
+	if ui.menuOpen {
+		if ev.Key() == tcell.KeyCtrlC || ev.Key() == tcell.KeyCtrlP {
+			ui.closeMenu()
+			return nil
+		}
+		return ev
+	}
+
 	switch ev.Key() {
 	case tcell.KeyCtrlC:
 		ui.app.Stop()
@@ -132,12 +129,127 @@ func (ui *UI) globalKeys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyCtrlL:
 		ui.requestRefresh()
 		return nil
-	case tcell.KeyUp, tcell.KeyDown, tcell.KeyPgUp, tcell.KeyPgDn,
-		tcell.KeyHome, tcell.KeyEnd:
+	case tcell.KeyCtrlP:
+		ui.openCommandMenu()
+		return nil
+	case tcell.KeyUp, tcell.KeyDown:
+		// With text in the prompt, Up/Down walk the command history;
+		// otherwise they scroll the process table.
+		if txt := ui.input.GetText(); txt != "" {
+			if ev.Key() == tcell.KeyUp {
+				if c, ok := ui.history.prev(); ok {
+					ui.input.SetText(c)
+				}
+			} else {
+				if c, ok := ui.history.next(); ok {
+					ui.input.SetText(c)
+				} else {
+					ui.input.SetText("")
+				}
+			}
+			return nil
+		}
+		ui.scrollTable(ev.Key())
+		return nil
+	case tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
 		ui.scrollTable(ev.Key())
 		return nil
 	}
 	return ev
+}
+
+// runCommandText executes a prompt command and reflects the result in the
+// status bar (without adding it to the history).
+func (ui *UI) runCommandText(cmd string) {
+	msg, isErr, quit := ui.execute(cmd)
+	if quit {
+		ui.app.Stop()
+		return
+	}
+	ui.state.setMessage(msg, isErr)
+	ui.redraw()
+}
+
+// openCommandMenu shows the Ctrl+P modal: commands that take no arguments,
+// plus the sort entry that opens a submenu with the column names.
+func (ui *UI) openCommandMenu() {
+	items := []menuItem{
+		{"refresh  - rescan processes now", func() { ui.runCommandText("refresh") }},
+		{"reset    - clear filters, show all processes", func() { ui.runCommandText("reset") }},
+		{"help     - show command help", func() { ui.runCommandText("help") }},
+		{"sort     - choose the sort column...", func() { ui.openSortMenu() }},
+		{"quit     - exit pidlot", func() { ui.app.Stop() }},
+	}
+	ui.openMenu(" commands (no args) ", items)
+}
+
+// openSortMenu shows the column-picker submenu of the modal.
+func (ui *UI) openSortMenu() {
+	items := []menuItem{
+		{`« back`, func() { ui.openCommandMenu() }},
+	}
+	for _, col := range sortMenuColumns {
+		col := col
+		items = append(items, menuItem{
+			fmt.Sprintf("sort by %-8s (%s by default)", col.label, sortColumns[col.key]),
+			func() {
+				ui.state.setSort(col.key, sortColumns[col.key])
+				ui.state.setMessage(fmt.Sprintf("sorted by %s (%s)", col.key, sortColumns[col.key]), false)
+				ui.redraw()
+			},
+		})
+	}
+	ui.openMenu(" sort by column ", items)
+}
+
+// openMenu shows a centered, bordered list on top of the main view.
+func (ui *UI) openMenu(title string, items []menuItem) {
+	list := tview.NewList().ShowSecondaryText(false).SetHighlightFullLine(true)
+	for _, it := range items {
+		it := it
+		list.AddItem(it.label, "", 0, func() {
+			ui.closeMenu()
+			it.run()
+		})
+	}
+	list.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyEscape {
+			ui.closeMenu()
+			return nil
+		}
+		return ev
+	})
+	list.SetBorder(true)
+	list.SetTitle(title)
+	list.SetTitleColor(tcell.ColorYellow)
+
+	width := 46
+	height := len(items) + 2 // items + top/bottom border
+	ui.pages.RemovePage("menu")
+	ui.pages.AddPage("menu", center(list, width, height), true, true)
+	ui.menuOpen = true
+	ui.app.SetFocus(list)
+}
+
+// closeMenu hides the modal and returns focus to the prompt.
+func (ui *UI) closeMenu() {
+	if !ui.menuOpen {
+		return
+	}
+	ui.pages.HidePage("menu")
+	ui.menuOpen = false
+	ui.app.SetFocus(ui.input)
+}
+
+// center wraps a primitive so it is drawn centered over the page below.
+func center(p tview.Primitive, width, height int) tview.Primitive {
+	return tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(p, height, 1, true).
+			AddItem(nil, 0, 1, false), width, 1, true).
+		AddItem(nil, 0, 1, false)
 }
 
 func (ui *UI) requestRefresh() {

@@ -69,6 +69,10 @@ func (c *collector) snapshot() []ProcInfo {
 		}
 		infos = append(infos, pi)
 	}
+
+	// Count direct children per pid now that the parent list is complete.
+	countChildren(infos)
+
 	c.prevAt = now
 
 	// Drop CPU history of processes that no longer exist.
@@ -78,6 +82,20 @@ func (c *collector) snapshot() []ProcInfo {
 	}
 	c.prevCPU = alive
 	return infos
+}
+
+// countChildren fills the Children field of each info with the number of
+// processes whose PPID points at it.
+func countChildren(infos []ProcInfo) {
+	childCount := make(map[int32]int, len(infos))
+	for _, pi := range infos {
+		if pi.PPID > 0 {
+			childCount[pi.PPID]++
+		}
+	}
+	for i := range infos {
+		infos[i].Children = childCount[infos[i].PID]
+	}
 }
 
 // listeningPortsByPID maps each pid to its listening TCP / bound UDP ports.
@@ -134,14 +152,54 @@ func portIn(ports []int, want int) bool {
 	return false
 }
 
-func sortProcs(ps []ProcInfo) {
-	sort.Slice(ps, func(i, j int) bool {
-		if ps[i].CPU != ps[j].CPU {
-			return ps[i].CPU > ps[j].CPU
-		}
-		if ps[i].RAM != ps[j].RAM {
-			return ps[i].RAM > ps[j].RAM
-		}
-		return ps[i].PID < ps[j].PID
+// sortProcs orders ps by the given column key ("pid", "ppid", "children",
+// "name", "cpu", "ram", "ports", "path") in the given direction
+// ("asc"/"desc"). CPU is the fallback key.
+func sortProcs(ps []ProcInfo, key, dir string) {
+	var cmp func(a, b ProcInfo) int
+	switch key {
+	case "pid":
+		cmp = func(a, b ProcInfo) int { return cmpI64(int64(a.PID), int64(b.PID)) }
+	case "ppid":
+		cmp = func(a, b ProcInfo) int { return cmpI64(int64(a.PPID), int64(b.PPID)) }
+	case "children":
+		cmp = func(a, b ProcInfo) int { return cmpI64(int64(a.Children), int64(b.Children)) }
+	case "name":
+		cmp = func(a, b ProcInfo) int { return strings.Compare(lower(a.Name), lower(b.Name)) }
+	case "ram":
+		cmp = func(a, b ProcInfo) int { return cmpI64(int64(a.RAM), int64(b.RAM)) }
+	case "ports":
+		cmp = func(a, b ProcInfo) int { return cmpI64(int64(len(a.Ports)), int64(len(b.Ports))) }
+	case "path":
+		cmp = func(a, b ProcInfo) int { return strings.Compare(lower(a.Path), lower(b.Path)) }
+	default: // cpu
+		cmp = func(a, b ProcInfo) int { return cmpFloat(a.CPU, b.CPU) }
+	}
+	asc := dir == "asc"
+	sort.SliceStable(ps, func(i, j int) bool {
+		c := cmp(ps[i], ps[j])
+		return (asc && c < 0) || (!asc && c > 0)
 	})
+}
+
+func cmpI64(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }

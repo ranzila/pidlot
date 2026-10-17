@@ -34,6 +34,9 @@ func (ui *UI) execute(cmd string) (msg string, isErr bool, quit bool) {
 	case "export":
 		return ui.cmdExport(args)
 
+	case "sort", "s":
+		return ui.cmdSort(args)
+
 	case "reset", "r":
 		ui.state.resetView()
 		return "view reset: showing all processes", false, false
@@ -148,6 +151,55 @@ func (ui *UI) cmdPort(args []string) (string, bool, bool) {
 		return fmt.Sprintf("port %d: no matching process", port), true, false
 	}
 	return fmt.Sprintf("port %d: %d process(es)", port, n), false, false
+}
+
+// sortColumns maps each sortable column to its default direction.
+var sortColumns = map[string]string{
+	"pid":      "asc",
+	"ppid":     "asc",
+	"children": "desc",
+	"name":     "asc",
+	"cpu":      "desc",
+	"ram":      "desc",
+	"ports":    "desc",
+	"path":     "asc",
+}
+
+// sortMenuColumns is the modal submenu order, with display labels.
+var sortMenuColumns = []struct{ key, label string }{
+	{"pid", "PID"},
+	{"ppid", "PPID"},
+	{"children", "CHILDREN"},
+	{"name", "NAME"},
+	{"cpu", "CPU %"},
+	{"ram", "RAM"},
+	{"ports", "PORTS"},
+	{"path", "PATH"},
+}
+
+func (ui *UI) cmdSort(args []string) (string, bool, bool) {
+	// bare 'sort' opens the sort submenu modal.
+	if len(args) == 0 {
+		ui.openSortMenu()
+		return "", false, false
+	}
+	col := lower(args[0])
+	dir, ok := sortColumns[col]
+	if !ok {
+		return "usage: sort pid|ppid|children|name|cpu|ram|ports|path [asc|desc]", true, false
+	}
+	if len(args) > 1 {
+		switch lower(args[1]) {
+		case "asc", "a":
+			dir = "asc"
+		case "desc", "d":
+			dir = "desc"
+		default:
+			return fmt.Sprintf("invalid direction %q (use asc or desc)", args[1]), true, false
+		}
+	}
+	ui.state.setSort(col, dir)
+	return fmt.Sprintf("sorted by %s (%s)", col, dir), false, false
 }
 
 func (ui *UI) cmdExport(args []string) (string, bool, bool) {

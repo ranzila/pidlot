@@ -7,13 +7,14 @@ import (
 
 // ProcInfo is one row of the process table.
 type ProcInfo struct {
-	PID   int32
-	PPID  int32
-	Name  string
-	Path  string
-	CPU   float64 // percent of one core (can exceed 100 on multicore)
-	RAM   uint64  // resident set size in bytes
-	Ports []int   // listening TCP / bound UDP ports
+	PID      int32
+	PPID     int32
+	Name     string
+	Path     string
+	CPU      float64 // percent of one core (can exceed 100 on multicore)
+	RAM      uint64  // resident set size in bytes
+	Ports    []int   // listening TCP / bound UDP ports
+	Children int     // number of direct child processes
 }
 
 // State holds the current snapshot and the active view filters.
@@ -24,12 +25,14 @@ type State struct {
 	filterPort int
 	childOf    int32
 	childSet   bool
+	sortKey    string // "pid", "ppid", "children", "name", "cpu", "ram", "ports", "path"
+	sortDir    string // "asc" or "desc"
 	message    string
 	msgErr     bool
 	updated    time.Time
 }
 
-func newState() *State { return &State{} }
+func newState() *State { return &State{sortKey: "cpu", sortDir: "desc"} }
 
 func (s *State) setSnapshot(sn []ProcInfo) {
 	s.mu.Lock()
@@ -51,6 +54,13 @@ func (s *State) resetView() {
 	s.filterPort = 0
 	s.childSet = false
 	s.childOf = 0
+	s.mu.Unlock()
+}
+
+func (s *State) setSort(key, dir string) {
+	s.mu.Lock()
+	s.sortKey = key
+	s.sortDir = dir
 	s.mu.Unlock()
 }
 
@@ -88,6 +98,6 @@ func (s *State) displayedLocked() []ProcInfo {
 		}
 		out = append(out, p)
 	}
-	sortProcs(out)
+	sortProcs(out, s.sortKey, s.sortDir)
 	return out
 }

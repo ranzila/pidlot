@@ -38,15 +38,16 @@ owned by other users.
 The top of the screen is a live table of every running process, refreshed
 every 2 seconds and sorted by CPU usage:
 
-| Column | Meaning                                             |
-|--------|-----------------------------------------------------|
-| PID    | process id                                          |
-| PPID   | parent process id                                   |
-| NAME   | executable name                                      |
-| CPU %  | percent of a single core (can exceed 100 on multicore) |
-| RAM    | resident memory                                      |
-| PORTS  | listening TCP / bound UDP ports                      |
-| PATH   | full executable path                                 |
+| Column  | Meaning                                             |
+|---------|-------------------------------------------------------|
+| PID     | process id                                            |
+| PPID    | parent process id                                     |
+| CHILDREN | number of direct child processes                    |
+| NAME    | executable name                                       |
+| CPU %   | percent of a single core (can exceed 100 on multicore) |
+| RAM     | resident memory                                       |
+| PORTS   | listening TCP / bound UDP ports                       |
+| PATH    | full executable path                                   |
 
 Below the table is a status line (view, counts, last command result) and a
 command prompt. Type a command and press Enter.
@@ -59,6 +60,7 @@ command prompt. Type a command and press Enter.
 | `child <pid>`              | show the child processes of the given pid                    |
 | `filter <text>`            | show only processes whose name/path/pid contains the text     |
 | `port <n>`                 | show only processes using that port                          |
+| `sort [col] [asc\|desc]`   | sort by `pid`\|`ppid`\|`children`\|`name`\|`cpu`\|`ram`\|`ports`\|`path`; bare `sort` opens the column-picker modal. Numeric columns default to descending, text to ascending |
 | `export txt\|csv\md [file]`| write the currently displayed rows to a file (default `processes-<timestamp>.<ext>`) |
 | `reset`                    | clear filters / child view, back to all processes             |
 | `refresh`                  | refresh immediately                                            |
@@ -68,9 +70,13 @@ command prompt. Type a command and press Enter.
 ### Keys
 
 - `Enter` executes the command in the prompt
-- `Up`/`Down`/`PgUp`/`PgDn`/`Home`/`End` scroll the process table
-- `Ctrl+P` / `Ctrl+N` browse command history
-- `Ctrl+L` force refresh, `Ctrl+C` quit
+- `Ctrl+P` opens the **command modal**: the list of no-argument commands
+  (refresh, reset, help, quit) — select with `↑`/`↓`, run with `Enter`, close
+  with `Esc`. Its `sort` entry opens a submenu with the column names to
+  choose the sort column
+- `Up`/`Down` scroll the process table — or walk the command history when the
+  prompt is not empty; `PgUp`/`PgDn`/`Home`/`End` always scroll the table
+- `Ctrl+L` force refresh, `Ctrl+C` quit (or close the modal when open)
 
 ## Notes
 

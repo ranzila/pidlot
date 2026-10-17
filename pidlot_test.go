@@ -84,6 +84,46 @@ func TestExportFormats(t *testing.T) {
 	}
 }
 
+func TestCountChildren(t *testing.T) {
+	infos := testSnapshot()
+	countChildren(infos)
+	byPID := map[int32]int{}
+	for _, p := range infos {
+		byPID[p.PID] = p.Children
+	}
+	want := map[int32]int{1: 2, 2: 1, 3: 0, 4: 0}
+	for pid, n := range want {
+		if byPID[pid] != n {
+			t.Fatalf("pid %d: got %d children, want %d", pid, byPID[pid], n)
+		}
+	}
+}
+
+func TestSortByKey(t *testing.T) {
+	rows := testSnapshot()
+	countChildren(rows)
+
+	sortProcs(rows, "ram", "desc")
+	if rows[0].PID != 3 { // 1 GB chrome
+		t.Fatalf("sort ram desc: got %+v", rows[0])
+	}
+
+	sortProcs(rows, "name", "asc")
+	if rows[0].Name != "chrome.exe" {
+		t.Fatalf("sort name asc: got %s", rows[0].Name)
+	}
+
+	sortProcs(rows, "children", "desc")
+	if rows[0].PID != 1 { // init has 2 children
+		t.Fatalf("sort children desc: got %+v", rows[0])
+	}
+
+	sortProcs(rows, "ports", "desc")
+	if rows[0].PID != 2 { // svc.exe has 2 ports
+		t.Fatalf("sort ports desc: got %+v", rows[0])
+	}
+}
+
 func TestPortsText(t *testing.T) {
 	if got := portsText(nil); got != "-" {
 		t.Fatalf("empty ports: %q", got)
