@@ -1,0 +1,11 @@
+# build output (created at build time by build.sh / build.ps1)
+/build/
+
+# stray root-level binaries from ad-hoc builds
+/pidlot
+/pidlot.exe
+
+# exports made by hand while testing
+/processes-*.txt
+/processes-*.csv
+/processes-*.md
